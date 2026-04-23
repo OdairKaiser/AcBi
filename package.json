@@ -1,0 +1,14 @@
+{
+    "name": "extratos-bancarios-powerbi-embed",
+    "version": "1.0.0",
+    "private": true,
+    "description": "Portal local para embed seguro do Power BI com token temporario",
+    "main": "server.js",
+    "scripts": {
+        "start": "node server.js"
+    },
+    "dependencies": {
+        "dotenv": "^16.4.5",
+        "express": "^4.21.2"
+    }
+}
