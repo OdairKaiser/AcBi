@@ -3,6 +3,19 @@ require("dotenv").config({ override: true, path: path.resolve(__dirname, ".env.r
 const express = require("express");
 
 const app = express();
+const AAD_TOKEN_SKEW_MS = 90 * 1000;
+const EMBED_URL_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+
+let aadTokenCache = {
+    token: "",
+    expiresAt: 0,
+};
+
+let embedUrlCache = {
+    key: "",
+    url: "",
+    expiresAt: 0,
+};
 
 // CORS middleware
 app.use((req, res, next) => {
@@ -53,6 +66,10 @@ function requireEnv(name, value) {
 }
 
 async function getAadAccessToken() {
+    if (aadTokenCache.token && aadTokenCache.expiresAt > Date.now()) {
+        return aadTokenCache.token;
+    }
+
     const PBI_TENANT_ID = getEnv("PBI_TENANT_ID");
     const PBI_CLIENT_ID = getEnv("PBI_CLIENT_ID");
     const PBI_CLIENT_SECRET = getEnv("PBI_CLIENT_SECRET");
@@ -83,10 +100,26 @@ async function getAadAccessToken() {
     }
 
     const data = await response.json();
-    return data.access_token;
+    if (!data || !data.access_token) {
+        throw new Error("Resposta invalida ao obter token AAD");
+    }
+
+    const now = Date.now();
+    const expiresInMs = Math.max(60 * 1000, Number(data.expires_in || 3600) * 1000);
+    aadTokenCache = {
+        token: data.access_token,
+        expiresAt: now + expiresInMs - AAD_TOKEN_SKEW_MS,
+    };
+
+    return aadTokenCache.token;
 }
 
 async function getReportEmbedUrl(aadToken, workspaceId, reportId) {
+    const cacheKey = `${workspaceId}:${reportId}`;
+    if (embedUrlCache.key === cacheKey && embedUrlCache.url && embedUrlCache.expiresAt > Date.now()) {
+        return embedUrlCache.url;
+    }
+
     const reportUrl = `https://api.powerbi.com/v1.0/myorg/groups/${workspaceId}/reports/${reportId}`;
     const response = await fetch(reportUrl, {
         method: "GET",
@@ -104,6 +137,12 @@ async function getReportEmbedUrl(aadToken, workspaceId, reportId) {
     if (!data || !data.embedUrl) {
         throw new Error("Resposta invalida ao consultar embedUrl do report");
     }
+
+    embedUrlCache = {
+        key: cacheKey,
+        url: data.embedUrl,
+        expiresAt: Date.now() + EMBED_URL_CACHE_TTL_MS,
+    };
 
     return data.embedUrl;
 }
